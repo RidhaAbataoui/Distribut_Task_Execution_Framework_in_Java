@@ -1,0 +1,16 @@
+# Compiled Java bytecode
+*.class
+*.jar
+
+# Build output directory
+build/
+
+# Runtime-generated data & logs
+data/*.json
+logs/*.log
+
+# IDE / OS files
+.idea/
+*.iml
+.DS_Store
+*.swp
