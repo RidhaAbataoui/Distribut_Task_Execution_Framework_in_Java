@@ -52,7 +52,7 @@ public class Master {
                 System.out.println("[Master] Slave registration listener started on port " + regPort);
                 while (true) {
                     Socket slaveSocket = regSocket.accept();
-                    Thread handler = new Thread(() -> handleSlaveRegistration(slaveSocket, slaveManager));
+                    Thread handler = new Thread(() -> handleSlaveRegistration(slaveSocket, slaveManager, scheduler));
                     handler.setDaemon(true);
                     handler.start();
                 }
@@ -94,7 +94,8 @@ public class Master {
      * Handles one slave registration connection.
      * Reads a SlaveRegistration object and adds it to the pool.
      */
-    private static void handleSlaveRegistration(Socket slaveSocket, SlaveManager slaveManager) {
+    private static void handleSlaveRegistration(Socket slaveSocket, SlaveManager slaveManager,
+            TaskScheduler scheduler) {
         try (
                 ObjectInputStream in = new ObjectInputStream(slaveSocket.getInputStream());
                 ObjectOutputStream out = new ObjectOutputStream(slaveSocket.getOutputStream())) {
@@ -102,6 +103,8 @@ public class Master {
             if (msg instanceof SlaveRegistration) {
                 SlaveRegistration reg = (SlaveRegistration) msg;
                 slaveManager.registerSlave(reg.getHost(), reg.getPort());
+                // Update execution slots to match the number of registered slaves
+                scheduler.setSlotCount(slaveManager.getAvailableSlaveCount());
                 // ACK back to slave
                 out.writeObject("REGISTERED");
                 out.flush();

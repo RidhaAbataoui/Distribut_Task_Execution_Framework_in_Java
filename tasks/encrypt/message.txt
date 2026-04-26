@@ -1,3 +1,10 @@
-Hello World! This is a secret message.
-Distributed computing is awesome.
-Java sockets make networking easy.
+Hello Ridha, this is line one of the secret message.
+Distributed computing allows us to process data in parallel.
+Java sockets make networking simple and powerful.
+The Caesar cipher shifts each letter by a fixed number.
+The Vigenere cipher uses a repeating keyword for stronger encryption.
+This line will be encrypted by one of the slave nodes.
+Each slave receives a chunk of lines and encrypts them independently.
+The master then merges all the encrypted chunks back into one file.
+This demonstrates how text encryption scales horizontally.
+End of message - encryption complete!

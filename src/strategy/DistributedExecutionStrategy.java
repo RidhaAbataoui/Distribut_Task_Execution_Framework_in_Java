@@ -84,9 +84,19 @@ public class DistributedExecutionStrategy implements ExecutionStrategy {
         String[] masterOptParts = masterOptsStr.isEmpty() ? new String[0] : masterOptsStr.split("\\s+");
         if (masterOptParts.length > 0) {
             try {
-                slaveCount = Math.min(Integer.parseInt(masterOptParts[0].trim()), totalSlaves);
+                int requestedSlaves = Integer.parseInt(masterOptParts[0].trim());
+                if (requestedSlaves > totalSlaves) {
+                    // ── Strict check: refuse task if not enough slaves are available ──
+                    String errorMsg = "Not enough slaves available: requested " + requestedSlaves
+                            + " but only " + totalSlaves + " slave(s) are connected.\n"
+                            + "Please start more slave nodes and try again.";
+                    System.out.println("  [DistributedStrategy] REJECTED — " + errorMsg);
+                    publisher.publish(100, "FAILED", errorMsg);
+                    return new TaskResult(false, errorMsg, new ArrayList<>());
+                }
+                slaveCount = requestedSlaves;
             } catch (NumberFormatException e) {
-                // Not a number — keep default
+                // Not a number — keep default (use all available slaves)
             }
         }
 
@@ -121,12 +131,13 @@ public class DistributedExecutionStrategy implements ExecutionStrategy {
         splitCommand.add("split");
         splitCommand.add(String.valueOf(slaveCount));
 
-        // Forward operation flags (e.g. -sum, -product)
+        // Forward ALL slave options to the split command.
+        // This allows tasks that need both a flag AND a value
+        // (e.g. -caesar 13, -vigenere SECRET) to work correctly,
+        // while still being backward-compatible with single-flag tasks
+        // like MatrixMaster (-product, -sum).
         for (String opt : slaveOptionsList) {
-            if (opt.startsWith("-")) {
-                splitCommand.add(opt);
-                break;
-            }
+            splitCommand.add(opt);
         }
 
         for (String f : inputFileNames) {
@@ -301,11 +312,19 @@ public class DistributedExecutionStrategy implements ExecutionStrategy {
             t.start();
         }
 
+        // Wait for all threads using a single shared deadline (not per-thread).
+        // Old approach: join(10s) per thread → 3 threads × 10s = 30s worst case.
+        // New approach: deadline is set once → total wait capped at exactly timeoutMs.
+        long deadline = System.currentTimeMillis() + timeoutMs;
         for (Thread t : threads) {
+            long remaining = deadline - System.currentTimeMillis();
+            if (remaining <= 0)
+                break;
             try {
-                t.join(timeoutMs);
+                t.join(remaining);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                break;
             }
         }
 

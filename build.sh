@@ -70,6 +70,34 @@ javac -d "$BUILD_DIR/tasks_tmp/matrix_worker" "$TASKS_DIR/matrix/MatrixWorker.ja
 jar cfm "$TASKS_DIR/MatrixWorker.jar" "$TASKS_DIR/matrix/MANIFEST_WORKER.MF" -C "$BUILD_DIR/tasks_tmp/matrix_worker" .
 echo "    ✓ MatrixWorker.jar"
 
+# Filter Master JAR
+echo "  → Building FilterMaster.jar..."
+mkdir -p "$BUILD_DIR/tasks_tmp/filter_master"
+javac -d "$BUILD_DIR/tasks_tmp/filter_master" "$TASKS_DIR/filters/FilterMaster.java"
+jar cfm "$TASKS_DIR/FilterMaster.jar" "$TASKS_DIR/filters/MANIFEST_MASTER.MF" -C "$BUILD_DIR/tasks_tmp/filter_master" .
+echo "    ✓ FilterMaster.jar"
+
+# Filter Worker JAR
+echo "  → Building FilterWorker.jar..."
+mkdir -p "$BUILD_DIR/tasks_tmp/filter_worker"
+javac -d "$BUILD_DIR/tasks_tmp/filter_worker" "$TASKS_DIR/filters/FilterWorker.java"
+jar cfm "$TASKS_DIR/FilterWorker.jar" "$TASKS_DIR/filters/MANIFEST_WORKER.MF" -C "$BUILD_DIR/tasks_tmp/filter_worker" .
+echo "    ✓ FilterWorker.jar"
+
+# Encrypt Master JAR
+echo "  → Building EncryptMaster.jar..."
+mkdir -p "$BUILD_DIR/tasks_tmp/encrypt_master"
+javac -d "$BUILD_DIR/tasks_tmp/encrypt_master" "$TASKS_DIR/encrypt/EncryptMaster.java"
+jar cfm "$TASKS_DIR/EncryptMaster.jar" "$TASKS_DIR/encrypt/MANIFEST_MASTER.MF" -C "$BUILD_DIR/tasks_tmp/encrypt_master" .
+echo "    ✓ EncryptMaster.jar"
+
+# Encrypt Worker JAR
+echo "  → Building EncryptWorker.jar..."
+mkdir -p "$BUILD_DIR/tasks_tmp/encrypt_worker"
+javac -d "$BUILD_DIR/tasks_tmp/encrypt_worker" "$TASKS_DIR/encrypt/EncryptWorker.java"
+jar cfm "$TASKS_DIR/EncryptWorker.jar" "$TASKS_DIR/encrypt/MANIFEST_WORKER.MF" -C "$BUILD_DIR/tasks_tmp/encrypt_worker" .
+echo "    ✓ EncryptWorker.jar"
+
 # ── Step 5: Cleanup ──
 echo "[5/5] Cleanup..."
 rm -rf "$BUILD_DIR/tasks_tmp"
@@ -87,7 +115,7 @@ echo ""
 echo "  ▸ LOCAL mode (V1 — Master executes locally):"
 echo ""
 echo "    Terminal 1 — Start Master:"
-echo "      java -cp build master.Master"
+    echo "      java -cp build master.Master"
 echo ""
 echo "    Terminal 2 — Run Client:"
 echo "      java -cp build client.Client localhost 5000 local tasks/Encrypt.jar 3 -- tasks/message.txt"
@@ -106,4 +134,6 @@ echo "      java -cp build master.Master"
 echo ""
 echo "    Terminal 4 — Run Client:"
 echo "      java -cp build client.Client localhost 5000 distributed tasks/MatrixMaster.jar tasks/MatrixWorker.jar -product -- tasks/A.txt tasks/B.txt"
+echo "      java -cp build client.Client localhost 5000 distributed tasks/FilterMaster.jar tasks/FilterWorker.jar -gray -- tasks/filters/image.png"
+echo ""
 echo ""

@@ -69,11 +69,16 @@ public class MatrixMaster {
         String fileA = args[fileStart];
         String fileB = args[fileStart + 1];
 
-        System.out.println("[MatrixMaster] Operation : " + operation);
+        System.out.println("[MatrixMaster] Operation  : " + operation);
         System.out.println("[MatrixMaster] Splitting for " + numSlaves + " slave(s)...");
 
         int[][] matrixA = readMatrix(fileA);
         int[][] matrixB = readMatrix(fileB);
+
+        System.out.println("[MatrixMaster] Matrix A   : " + matrixA.length + " row(s) × "
+                + (matrixA.length > 0 ? matrixA[0].length : 0) + " col(s)");
+        System.out.println("[MatrixMaster] Matrix B   : " + matrixB.length + " row(s) × "
+                + (matrixB.length > 0 ? matrixB[0].length : 0) + " col(s)");
 
         int totalRows = matrixA.length;
         int rowsPerSlave = totalRows / numSlaves;
@@ -114,8 +119,15 @@ public class MatrixMaster {
                 }
             }
 
+            // Print exactly which rows of A go to this slave
+            StringBuilder rowPreview = new StringBuilder();
+            for (int r = startRow; r <= endRow; r++) {
+                rowPreview.append("  Slave ").append(i).append(" ← A[row ").append(r).append("] = [")
+                        .append(rowToString(matrixA[r])).append("]\n");
+            }
+            System.out.print(rowPreview);
             System.out.println("[MatrixMaster] Created " + chunkFile
-                    + " (A rows " + startRow + "–" + endRow + ")");
+                    + " (slave " + i + " → A rows " + startRow + "–" + endRow + ")");
             startRow += count;
             chunksCreated++;
         }

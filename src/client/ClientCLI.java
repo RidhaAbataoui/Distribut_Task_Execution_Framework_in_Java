@@ -15,16 +15,23 @@ import java.util.List;
 import java.util.Scanner;
 
 /**
- * Interactive Client — Auto-connects to the Master and loops.
+ * Interactive Client — Connects ONCE to the Master, then loops for multiple
+ * tasks.
  *
  * Workflow:
- * 1. Auto-connect to server (from config or defaults)
- * 2. Choose mode: LOCAL or DISTRIBUTED
- * 3. Fill in task details step by step
- * 4. Receive and display results
- * 5. Ask if you want to run another task (loop)
+ * 1. Auto-connect to server (from config or defaults) — ONE connection for the
+ * whole session
+ * 2. Loop:
+ * a. Choose mode: LOCAL or DISTRIBUTED
+ * b. Fill in task details step by step
+ * c. Send TaskRequest over the persistent socket
+ * d. Receive progress updates + TaskResult over the same socket
+ * e. Ask if you want to run another task
+ * 3. User types 'n' → client closes the connection and exits
  *
- * Multiple instances of this client can run simultaneously.
+ * Each terminal = one client session = one server-side ClientHandler thread
+ * (one unique Client ID).
+ * Multiple terminals = multiple parallel client sessions.
  */
 public class ClientCLI {
 
@@ -46,31 +53,47 @@ public class ClientCLI {
             } catch (NumberFormatException ignored) {
             }
         } else if (args.length == 1) {
-            // Just host
             host = args[0];
         }
 
         System.out.println("  Server : " + host + ":" + port);
-        System.out.println("  (Change in config/config.properties → server.port)");
+        System.out.println("  Tip    : Open a new terminal for a parallel client session.");
         System.out.println();
 
-        // ── Main task loop ──
-        while (true) {
-            boolean submitted = showTaskMenu(host, port);
+        // ── Connect ONCE — this socket stays open for the whole session ──
+        System.out.print("  Connecting to server... ");
+        try (
+                Socket socket = new Socket(host, port);
+                ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+                ObjectInputStream in = new ObjectInputStream(socket.getInputStream())) {
+            System.out.println("✓ Connected! (session open — multiple tasks supported)");
+            System.out.println();
 
-            if (submitted) {
-                System.out.println();
-                System.out.print("  Run another task? [Y/n]: ");
-                String again = scanner.nextLine().trim().toLowerCase();
-                if (again.equals("n") || again.equals("no")) {
-                    System.out.println("\n  Goodbye! ✓");
+            // ── Task loop — reuse the same socket/streams ──
+            while (true) {
+                boolean submitted = showTaskMenu(out, in);
+
+                if (submitted) {
+                    System.out.println();
+                    System.out.print("  Run another task? [Y/n]: ");
+                    String again = scanner.nextLine().trim().toLowerCase();
+                    if (again.equals("n") || again.equals("no")) {
+                        System.out.println("\n  Goodbye! ✓");
+                        break;
+                    }
+                    System.out.println();
+                } else {
+                    System.out.println("\n  Exiting.");
                     break;
                 }
-                System.out.println();
-            } else {
-                System.out.println("\n  Exiting.");
-                break;
             }
+
+        } catch (IOException e) {
+            System.err.println("\n  [ERROR] Could not connect to Master at " + host + ":" + port);
+            System.err.println("          Ensure the Master is running first.");
+        } catch (Exception e) {
+            System.err.println("\n  [ERROR] Unexpected error: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -78,7 +101,7 @@ public class ClientCLI {
     // Main task selection menu
     // ─────────────────────────────────────────────────────────────
 
-    private static boolean showTaskMenu(String host, int port) {
+    private static boolean showTaskMenu(ObjectOutputStream out, ObjectInputStream in) {
         System.out.println("┌──────────────────────────────────────────┐");
         System.out.println("│   Select execution mode:                 │");
         System.out.println("│                                          │");
@@ -100,13 +123,13 @@ public class ClientCLI {
                 request = buildLocalRequest();
             }
 
-            sendAndReceive(host, port, request);
+            sendAndReceive(out, in, request);
             return true;
 
         } catch (Exception e) {
             System.err.println("\n  [ERROR] " + e.getMessage());
             e.printStackTrace();
-            return true; // allow retry
+            return true; // allow user to try again
         }
     }
 
@@ -132,7 +155,6 @@ public class ClientCLI {
         List<FileData> files = askForFiles();
 
         System.out.println("  ────────────────────────────────────────────");
-        // Factory Method Pattern: creates and validates the TaskRequest
         return TaskFactory.createLocalTask(jarBytes, options, files);
     }
 
@@ -150,7 +172,7 @@ public class ClientCLI {
         byte[] masterJarBytes = Files.readAllBytes(Paths.get(masterPath));
         System.out.println("    ✓ Master JAR: " + masterPath + " (" + humanSize(masterJarBytes.length) + ")");
 
-        // Master options (number of slaves / extra args)
+        // Master options
         System.out.println();
         System.out.println("  Give the Master options (e.g. number of slaves: 2):");
         System.out.print("  > ");
@@ -193,7 +215,6 @@ public class ClientCLI {
             allOptions.add(s);
 
         System.out.println("  ────────────────────────────────────────────");
-        // Factory Method Pattern: creates and validates the TaskRequest
         return TaskFactory.createDistributedTask(
                 masterJarBytes, workerJarBytes,
                 allOptions.toArray(new String[0]),
@@ -201,23 +222,24 @@ public class ClientCLI {
     }
 
     // ─────────────────────────────────────────────────────────────
-    // Send request and display result
+    // Send TaskRequest and read back progress + result
+    // Uses the SAME streams for the whole session — no reconnect!
     // ─────────────────────────────────────────────────────────────
 
-    private static void sendAndReceive(String host, int port, TaskRequest request) throws Exception {
+    private static void sendAndReceive(ObjectOutputStream out, ObjectInputStream in,
+            TaskRequest request) throws Exception {
         System.out.println();
-        System.out.println("  Connecting to " + host + ":" + port + "...");
-        Socket socket = new Socket(host, port);
-        System.out.println("  ✓ Connected! Sending task...");
+        System.out.println("  Sending task to server...");
 
-        ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+        // ObjectOutputStream.reset() clears the serialization cache so the server
+        // always deserializes the new object (important when re-using a stream).
+        out.reset();
         out.writeObject(request);
         out.flush();
 
         System.out.println("  ✓ Task sent. Waiting for progress...");
         System.out.println();
 
-        ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
         TaskResult result = null;
 
         // ── Read mixed-type stream: ProgressUpdate* then TaskResult ──
@@ -234,10 +256,6 @@ public class ClientCLI {
         }
 
         System.out.println(); // newline after progress bar
-
-        in.close();
-        out.close();
-        socket.close();
 
         if (result != null) {
             printResult(result);
@@ -269,9 +287,6 @@ public class ClientCLI {
     // Helpers
     // ─────────────────────────────────────────────────────────────
 
-    /**
-     * Asks for a file path with validation (retries until file exists).
-     */
     private static String askFilePath(String prompt) {
         while (true) {
             System.out.print(prompt);
@@ -282,9 +297,6 @@ public class ClientCLI {
         }
     }
 
-    /**
-     * Asks for input files one per line, stops on empty line.
-     */
     private static List<FileData> askForFiles() throws IOException {
         System.out.println();
         System.out.println("  Give me the list of the files");
@@ -312,9 +324,6 @@ public class ClientCLI {
         return files;
     }
 
-    /**
-     * Prints the task result nicely.
-     */
     private static void printResult(TaskResult result) {
         if (result.isSuccess()) {
             System.out.println("  ╔══════════════════════════════════════╗");
@@ -326,7 +335,6 @@ public class ClientCLI {
             System.out.println("  ╚══════════════════════════════════════╝");
         }
 
-        // Console output
         String console = result.getConsoleOutput();
         if (console != null && !console.isEmpty()) {
             System.out.println();
@@ -338,7 +346,6 @@ public class ClientCLI {
             System.out.println("  ─────────────────────────────────────");
         }
 
-        // Save output files
         if (result.getOutputFiles() != null && !result.getOutputFiles().isEmpty()) {
             try {
                 Path outputDir = Paths.get("results");
@@ -368,6 +375,7 @@ public class ClientCLI {
         System.out.println();
         System.out.println("  ╔══════════════════════════════════════════════════════╗");
         System.out.println("  ║  Distributed Task Execution — Interactive Client v2  ║");
+        System.out.println("  ║  One connection per session → multiple tasks         ║");
         System.out.println("  ╚══════════════════════════════════════════════════════╝");
         System.out.println();
     }
