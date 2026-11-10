@@ -1,0 +1,71 @@
+# Generate the populated version from Wafu → Integrations → GitHub Actions.
+# Repository secret: PFA_CI_TOKEN. Optional variables: PFA_REPORT_ONLY, PFA_UPLOAD_SARIF.
+name: Wafu security scan
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main, develop]
+permissions:
+  contents: read
+concurrency:
+  group: wafu-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  wafu:
+    # Fork PRs cannot use this repository's service token or private runner.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      # Add security-events: write only when enabling PFA_UPLOAD_SARIF below.
+    env:
+      PFA_URL: 'https://scan.wafusecurity.com'
+      PFA_PROJECT: '6aa4b994-751f-4289-87e9-2592c0f0f07a'
+      PFA_CLI_SHA256: 'f41979cca918869958785e6f0de7257de70ba97f0ea6af28f7bb0a808a8f55a0'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Prepare verified Wafu CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          command -v python3
+          command -v git
+          curl --fail --silent --show-error --connect-timeout 10 --max-time 120 \
+            --proto '=https' "$PFA_URL/api/v1/cli/wafu.py" -o "$RUNNER_TEMP/wafu.py"
+          printf '%s  %s\n' "$PFA_CLI_SHA256" "$RUNNER_TEMP/wafu.py" | sha256sum --check --status
+          python3 "$RUNNER_TEMP/wafu.py" --url "$PFA_URL"  --check-version
+      - name: Wafu security scan
+        id: scan
+        shell: bash
+        env:
+          PFA_CI_TOKEN: ${{ secrets.PFA_CI_TOKEN }}
+          PFA_REPORT_ONLY: ${{ vars.PFA_REPORT_ONLY || 'false' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          extra=()
+          if [ "$PFA_REPORT_ONLY" = 'true' ]; then extra+=(--report-only); fi
+          python3 "$RUNNER_TEMP/wafu.py" \
+            --url "$PFA_URL"  --project "$PFA_PROJECT" --source . \
+            --mode FULL --families sast secrets --ai-review --ai-guidance --presets builtin-owasp-top-10 builtin-java-spring builtin-cryptography 68b3ec45-025d-412b-a4c4-5949d0530f2c --timeout 5100 \
+            --state "$RUNNER_TEMP/wafu-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json" \
+            --reports wafu-reports "${extra[@]}"
+      - name: Publish SARIF to GitHub code scanning
+        if: ${{ !cancelled() && vars.PFA_UPLOAD_SARIF == 'true' && hashFiles('wafu-reports/*.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@4bfa242aa49c5f7c6770b98670d354a7dfac05f8 # v3
+        with:
+          sarif_file: wafu-reports
+          category: wafu
+      - name: Keep scan reports
+        if: ${{ always() && hashFiles('wafu-reports/*') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wafu-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: wafu-reports/
+          retention-days: 7
+          if-no-files-found: error
