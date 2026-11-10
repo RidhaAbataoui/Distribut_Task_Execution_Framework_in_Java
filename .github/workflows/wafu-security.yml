@@ -15,7 +15,7 @@ jobs:
   wafu:
     # Fork PRs cannot use this repository's service token or private runner.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, wafu-ci]
     timeout-minutes: 90
     permissions:
       contents: read
